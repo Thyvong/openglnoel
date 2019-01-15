@@ -10,6 +10,15 @@ class Application
 {
 public:
     Application(int argc, char** argv);
+	const glmlv::SimpleGeometry cube = glmlv::makeCube(),
+		sphere= glmlv::makeSphere(30);
+	GLuint vbocube, vbosphere;
+	GLuint vaocube, vaosphere;
+	GLuint ibocube, ibosphere;
+
+	GLint uModelViewProjMatrix, uModelViewMatrix, uNormalMatrix;
+	
+
 
     int run();
 private:
@@ -21,4 +30,6 @@ private:
     const std::string m_AppName;
     const std::string m_ImGuiIniFilename;
     const glmlv::fs::path m_ShadersRootPath;
+
+	glmlv::GLProgram program;
 };
