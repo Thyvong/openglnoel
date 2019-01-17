@@ -5,6 +5,7 @@
 #include <glmlv/GLProgram.hpp>
 #include <glmlv/ViewController.hpp>
 #include <glmlv/simple_geometry.hpp>
+#include <glmlv/Image2DRGBA.hpp>
 
 class Application
 {
@@ -17,8 +18,14 @@ public:
 	GLuint ibocube, ibosphere;
 
 	GLint uModelViewProjMatrix, uModelViewMatrix, uNormalMatrix;
-	
 
+	GLint uKd;
+	GLint uDirectionalLightDir, uDirectionalLightIntensity;
+	GLint uPointLightPosition, uPointLightIntensity;
+	GLint uKdSampler;
+
+	glmlv::Image2DRGBA texture1, texture2;
+	GLuint texobject1, texobject2 , sampler;
 
     int run();
 private:
