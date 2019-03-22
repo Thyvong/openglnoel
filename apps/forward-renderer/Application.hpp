@@ -6,6 +6,7 @@
 #include <glmlv/ViewController.hpp>
 #include <glmlv/simple_geometry.hpp>
 #include <glmlv/Image2DRGBA.hpp>
+#include <glmlv/scene_loading.hpp>
 
 class Application
 {
@@ -17,6 +18,10 @@ public:
 	GLuint vaocube, vaosphere;
 	GLuint ibocube, ibosphere;
 
+	GLuint vbos;
+	GLuint vaos;
+	GLuint ibos;
+
 	GLint uModelViewProjMatrix, uModelViewMatrix, uNormalMatrix;
 
 	GLint uKd;
@@ -25,7 +30,11 @@ public:
 	GLint uKdSampler;
 
 	glmlv::Image2DRGBA texture1, texture2;
+
 	GLuint texobject1, texobject2 , sampler;
+	std::vector<GLuint> texobjects;
+
+	glmlv::SceneData sceneData;
 
     int run();
 private:
