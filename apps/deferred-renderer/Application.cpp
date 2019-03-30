@@ -4,6 +4,7 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include "gltf_method.hpp"
 
 int Application::run()
 {
@@ -368,6 +369,15 @@ void Application::SceneLoading() {
 		m_sceneMaterials[i].shininessTextureId = m_scene.materials[i].shininessTextureId >= 0 ? m_textures[m_scene.materials[i].shininessTextureId] : m_defaultTexture;
 
 	}
+}
+
+void Application::SceneLoadingGLTF() {
+
+	gltf_method sceneloader;
+	const auto objPath = m_AssetsRootPath / "sponza.obj";
+	sceneloader.loadModel(m_model, objPath.string);
+
+	m_gltfvao = sceneloader.bindModel(m_model);
 }
 
 void Application::GeometryPassInit() {

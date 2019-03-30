@@ -15,6 +15,7 @@ public:
     int run();
 	void InitDefaultMat();
 	void SceneLoading();
+	void SceneLoadingGLTF();
 
 	void GeometryPassInit();
 	void ShadingPassInit();
@@ -65,6 +66,12 @@ private:
 	GLuint m_vbo;
 	GLuint m_vao;
 	GLuint m_ibo;
+
+	// gltf
+
+	tinygltf::Model m_model;
+	GLuint m_gltfvao;
+
 
 	// mats
 
