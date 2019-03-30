@@ -21,6 +21,11 @@ int Application::run()
 	glm::mat4 MV;
 	glm::mat4 MVP;
 	
+	int indexOffset = 0;
+	const auto sceneCenter = 0.5f * (m_scene.bboxMin + m_scene.bboxMax);
+	const float sceneRadius = scenesize * 0.5f;
+
+
 	glm::vec3 DirLightColor = glm::vec3(1);
 	float DirLightIntensity = 20;
 	float DirLightPhiAngleDegrees =40;
@@ -31,12 +36,59 @@ int Application::run()
 	float PointLightIntensity =40;
 	glm::vec3 PointLightPosition = glm::vec3(1,1,1);
 
+	GBufferTextureType current_display = GPosition;
+	int fullmode = 1;
+
+	bool recalculateSMDir = true; // init à true pour le 1er calcul
+	glm::mat4 dirLightProjMatrix = glm::mat4(1);
+	glm::mat4 dirLightViewMatrix = glm::mat4(1);
+
+	glm::vec3 dirLightUpVector = glm::vec3(1);
+	glm::mat4 DirLightViewProjMatrix = glm::mat4(1);
+	glm::mat4 DirLightViewProjMatrix_shadingpass = glm::mat4(1);
+	float shadowBias = 0.5;
+
+	// closest filtering
+	int DirLightSMSampleCount = 16;
+	float DirLightSMSpread = 0.0005f;
 
 	// Loop until the user closes the window
 	for (auto iterationCount = 0u; !m_GLFWHandle.shouldClose(); ++iterationCount)
 	{
 		const auto seconds = glfwGetTime();
 
+		
+		dirLightUpVector = computeDirectionVectorUp(glm::radians(DirLightPhiAngleDegrees), glm::radians(DirLightThetaAngleDegrees));
+		dirLightViewMatrix = glm::lookAt(sceneCenter + DirLightDirection * sceneRadius, sceneCenter, dirLightUpVector); // Will not work if m_DirLightDirection is colinear to lightUpVector
+		dirLightProjMatrix = glm::ortho(-sceneRadius, sceneRadius, -sceneRadius, sceneRadius, 0.01f * sceneRadius, 2.f * sceneRadius);
+
+		if (recalculateSMDir) {
+
+			// recalcul
+			m_directionalSMProgram.use();
+
+			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_directionalSMFBO);
+			glViewport(0, 0, m_nDirectionalSMResolution, m_nDirectionalSMResolution);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+			DirLightViewProjMatrix = dirLightProjMatrix * dirLightViewMatrix;
+			glUniformMatrix4fv(m_uDirLightViewProjMatrix, 1, GL_FALSE, glm::value_ptr(DirLightViewProjMatrix));
+			
+			glBindVertexArray(m_vao);
+
+			indexOffset = 0;
+			for (int i = 0; i < m_scene.shapeCount; i++)
+			{
+				glDrawElements(GL_TRIANGLES, m_scene.indexCountPerShape[i], GL_UNSIGNED_INT, (const GLvoid*)(indexOffset * sizeof(GLuint)));
+				indexOffset += m_scene.indexCountPerShape[i];
+			}
+
+			glBindVertexArray(0);
+
+			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+
+			recalculateSMDir = false;
+		}
 		// Put here rendering code
 
 		m_geopassProg.use();
@@ -78,6 +130,7 @@ int Application::run()
 			
 
 			Model = m_scene.localToWorldMatrixPerShape[i];
+			View = camera.getViewMatrix();
 			MV = View * Model;
 			MVP = Proj * MV;
 			Normal = glm::transpose(glm::inverse(MV));
@@ -96,6 +149,63 @@ int Application::run()
 
 		glBindVertexArray(0);
 		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+		
+		// pour éviter le vacillement et faire un refresh
+		const auto viewportSize = m_GLFWHandle.framebufferSize();
+		glViewport(0, 0, viewportSize.x, viewportSize.y);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+
+		if (fullmode==1) {
+			m_shadepassProg.use();
+
+			glUniform3fv(m_uDirLightDir, 1, glm::value_ptr(glm::vec3(View * glm::vec4(glm::normalize(DirLightDirection), 0))));
+			glUniform3fv(m_uDirLightIntensity, 1, glm::value_ptr(DirLightColor * DirLightIntensity));
+
+			glUniform3fv(m_uPointLightPos, 1, glm::value_ptr(glm::vec3(View * glm::vec4(PointLightPosition, 1))));
+			glUniform3fv(m_uPointLightIntensity, 1, glm::value_ptr(PointLightColor * PointLightIntensity));
+
+			glUniform1fv(m_uDirLightShadowMapBias, 1, &shadowBias);
+
+			glUniform1iv(m_uDirLightShadowMapSampleCount, 1, &DirLightSMSampleCount);
+			glUniform1fv(m_uDirLightShadowMapSpread, 1, &DirLightSMSpread);
+
+
+			DirLightViewProjMatrix_shadingpass = dirLightProjMatrix * dirLightViewMatrix;
+			const auto rcpViewMatrix = camera.getRcpViewMatrix(); // Inverse de la view matrix de la caméra
+			glUniformMatrix4fv(m_uDirLightViewProjMatrix_shadingpass, 1, GL_FALSE, glm::value_ptr(DirLightViewProjMatrix_shadingpass * rcpViewMatrix));
+
+			for (int i = GPosition; i < GDepth; ++i)
+			{
+				glActiveTexture(GL_TEXTURE0 + i);
+				glBindTexture(GL_TEXTURE_2D, m_GBufferTextures[i]);
+
+				glUniform1i(m_uGBuffer[i], i);
+			}
+			// shadow map texture can now be used through gdepth entry
+			glActiveTexture(GL_TEXTURE0 + GDepth);
+			glBindTexture(GL_TEXTURE_2D, m_directionalSMTexture);
+			glBindSampler(GDepth, m_directionalSMSampler);
+			glUniform1i(m_uDirLightShadowMap, GDepth);
+
+			glBindVertexArray(m_triangleVAO);
+			glDrawArrays(GL_TRIANGLES, 0, 3);
+			glBindVertexArray(0);
+
+		}
+		else {
+			// GBuffer display
+			glBindFramebuffer(GL_READ_FRAMEBUFFER, m_GBufferFBO);
+			glReadBuffer(GL_COLOR_ATTACHMENT0 + current_display);
+			glBlitFramebuffer(0, 0, m_nWindowWidth, m_nWindowHeight,
+			0, 0, m_nWindowWidth, m_nWindowHeight, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+
+			glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+			
+		}
+		
+		
+
 
 
 		// GUI code:
@@ -112,9 +222,21 @@ int Application::run()
 			{
 				ImGui::ColorEdit3("DirLightColor", glm::value_ptr(DirLightColor));
 				ImGui::DragFloat("DirLightIntensity", &DirLightIntensity, 0.1f, 0.f, 100.f);
-				if (ImGui::DragFloat("Phi Angle", &DirLightPhiAngleDegrees, 1.0f, 0.0f, 360.f) ||
-					ImGui::DragFloat("Theta Angle", &DirLightThetaAngleDegrees, 1.0f, 0.0f, 180.f)) {
+				if (ImGui::DragFloat("Phi Angle", &DirLightPhiAngleDegrees, 1.0f, 0.0f, 360.f) 
+					||
+					ImGui::DragFloat("Theta Angle", &DirLightThetaAngleDegrees, 1.0f, 0.0f, 180.f)
+					||
+					ImGui::DragInt("SampleCount", &DirLightSMSampleCount, 1, 0, 16)
+					||
+					ImGui::DragFloat("ShadowSpread", &DirLightSMSpread, 0.00001f, 0.0f, 0.0005f)
+					||
+					ImGui::InputFloat("DirShadowMap Bias", &shadowBias, 1, 0, 100)
+
+					)
+
+				{
 					DirLightDirection = computeDirectionVector(glm::radians(DirLightPhiAngleDegrees), glm::radians(DirLightThetaAngleDegrees));
+					recalculateSMDir = true;
 				}
 			}
 
@@ -124,16 +246,16 @@ int Application::run()
 				ImGui::DragFloat("PointLightIntensity", &PointLightIntensity, 0.1f, 0.f, 16000.f);
 				ImGui::InputFloat3("Position", glm::value_ptr(PointLightPosition));
 			}
-			/*
+			ImGui::DragInt("Fullmode = 1, GB-Blitter = 0", &fullmode, 1, 0, 1);
 			if (ImGui::CollapsingHeader("GBuffer"))
 			{
 				for (int32_t i = GPosition; i <= GBufferTextureCount; ++i)
 				{
-					if (ImGui::RadioButton(m_GBufferTexNames[i], m_CurrentlyDisplayed == i))
-						m_CurrentlyDisplayed = GBufferTextureType(i);
+					if (ImGui::RadioButton(m_GBufferTexNames[i], current_display == i))
+						current_display = GBufferTextureType(i);
 				}
-			}*/
-
+			}
+			
 			ImGui::End();
 		}
 
@@ -179,6 +301,7 @@ void Application::InitDefaultMat() {
 void Application::SceneLoading() {
 
 	const auto objPath = m_AssetsRootPath / "sponza.obj";
+	std::cout << objPath << std::endl;
 	loadObjScene(objPath, m_scene);
 
 	glGenBuffers(1, &m_vbo);
@@ -248,7 +371,7 @@ void Application::SceneLoading() {
 }
 
 void Application::GeometryPassInit() {
-	m_geopassProg = glmlv::compileProgram({ m_ShadersRootPath / m_AppName / "geometryPass.vs.glsl", m_ShadersRootPath / m_AppName / "geometryPass.fs.glsl" });
+	m_geopassProg = glmlv::compileProgram({ m_ShadersRootPath / "geometryPass.vs.glsl", m_ShadersRootPath / "geometryPass.fs.glsl" });
 
 	m_uMVP = glGetUniformLocation(m_geopassProg.glId(), "uMVP");
 	m_uMV = glGetUniformLocation(m_geopassProg.glId(), "uMV");
@@ -267,20 +390,23 @@ void Application::GeometryPassInit() {
 
 void Application::ShadingPassInit() {
 	
-	m_shadepassProg = glmlv::compileProgram({ m_ShadersRootPath / m_AppName / "shadingPass.vs.glsl", m_ShadersRootPath / m_AppName / "shadingPass.fs.glsl" });
-	/*
-	m_uGBufferSamplerLocations[GPosition] = glGetUniformLocation(m_shadepassProg.glId(), "uGPosition");
-	m_uGBufferSamplerLocations[GNormal] = glGetUniformLocation(m_shadepassProg.glId(), "uGNormal");
-	m_uGBufferSamplerLocations[GAmbient] = glGetUniformLocation(m_shadepassProg.glId(), "uGAmbient");
-	m_uGBufferSamplerLocations[GDiffuse] = glGetUniformLocation(m_shadepassProg.glId(), "uGDiffuse");
-	m_uGBufferSamplerLocations[GGlossyShininess] = glGetUniformLocation(m_shadepassProg.glId(), "uGGlossyShininess");
+	m_shadepassProg = glmlv::compileProgram({ m_ShadersRootPath  / "shadingPass.vs.glsl", m_ShadersRootPath / "shadingPass.fs.glsl" });
+	
+	m_uGBuffer[GPosition] = glGetUniformLocation(m_shadepassProg.glId(), "uGPosition");
+	m_uGBuffer[GNormal] = glGetUniformLocation(m_shadepassProg.glId(), "uGNormal");
+	m_uGBuffer[GAmbient] = glGetUniformLocation(m_shadepassProg.glId(), "uGAmbient");
+	m_uGBuffer[GDiffuse] = glGetUniformLocation(m_shadepassProg.glId(), "uGDiffuse");
+	m_uGBuffer[GGlossyShininess] = glGetUniformLocation(m_shadepassProg.glId(), "uGGlossyShininess");
 
-	*/
 	m_uDirLightDir = glGetUniformLocation(m_shadepassProg.glId(), "uDirLightDir");
 	m_uDirLightIntensity = glGetUniformLocation(m_shadepassProg.glId(), "uDirLightIntensity");
 
 	m_uPointLightPos = glGetUniformLocation(m_shadepassProg.glId(), "uPointLightPos");
 	m_uPointLightIntensity = glGetUniformLocation(m_shadepassProg.glId(), "uPointLightIntensity");
+	m_uDirLightViewProjMatrix_shadingpass = glGetUniformLocation(m_shadepassProg.glId(), "uDirLightViewProjMatrix");
+
+	m_uDirLightShadowMapSampleCount = glGetUniformLocation(m_shadepassProg.glId(), "uDirLightShadowMapSampleCount");
+	m_uDirLightShadowMapSpread = glGetUniformLocation(m_shadepassProg.glId(), "uDirLightShadowMapSpread"); 
 	
 }
 
@@ -317,21 +443,70 @@ void Application::initGBuffer()
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 }
 
+void Application::initShadowMapDir() {
+	
+	glGenTextures(1, &m_directionalSMTexture);
+
+	glBindTexture(GL_TEXTURE_2D, m_directionalSMTexture);
+	glTexStorage2D(GL_TEXTURE_2D, 1, GL_DEPTH_COMPONENT32F, m_nDirectionalSMResolution, m_nDirectionalSMResolution);
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	glGenFramebuffers(1, &m_directionalSMFBO);
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_directionalSMFBO);
+	glBindTexture(GL_TEXTURE_2D, m_directionalSMTexture);
+	glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, m_directionalSMTexture, 0);
+
+	const auto fboStatus = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER);
+	if (fboStatus != GL_FRAMEBUFFER_COMPLETE)
+	{
+		std::cerr << "Error on building directional shadow mapping framebuffer. Error code = " << fboStatus << std::endl;
+		throw std::runtime_error("Error on building directional shadow mapping framebuffer.");
+	}
+
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+
+	glGenSamplers(1, &m_directionalSMSampler);
+	glSamplerParameteri(m_directionalSMSampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glSamplerParameteri(m_directionalSMSampler, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glSamplerParameteri(m_directionalSMSampler, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+	glSamplerParameteri(m_directionalSMSampler, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+	glSamplerParameteri(m_directionalSMSampler, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+	glSamplerParameteri(m_directionalSMSampler, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+
+}
+
+void Application::initShadowMapDirShaders() {
+
+	m_directionalSMProgram = glmlv::compileProgram({ m_ShadersRootPath / "directionalSM.vs.glsl", m_ShadersRootPath / "directionalSM.fs.glsl" });
+	m_uDirLightViewProjMatrix =  glGetUniformLocation(m_geopassProg.glId(), "uDirLightViewProjMatrix");
+	m_uDirLightShadowMap = glGetUniformLocation(m_geopassProg.glId(), "uDirLightShadowMap");
+	m_uDirLightShadowMapBias = glGetUniformLocation(m_geopassProg.glId(), "uDirLightShadowMapBias");
+	
+	
+
+}
+
 Application::Application(int argc, char** argv) :
 	m_AppPath{ glmlv::fs::path{ argv[0] } },
 	m_AppName{ m_AppPath.stem().string() },
 	m_ImGuiIniFilename{ m_AppName + ".imgui.ini" },
-	m_ShadersRootPath{ m_AppPath.parent_path() / "shaders" },
-	m_AssetsRootPath{ m_AppPath.parent_path() / "assets" }
+	m_ShadersRootPath{ m_AppPath.parent_path() / "shaders" / m_AppName },
+	m_AssetsRootPath{ m_AppPath.parent_path() / "assets" / m_AppName }
 {
 	ImGui::GetIO().IniFilename = m_ImGuiIniFilename.c_str(); // At exit, ImGUI will store its windows positions in this file
 
 	// Put here initialization code
 	InitDefaultMat();
 	SceneLoading();
+	// deferred
 	GeometryPassInit();
+	ShadingPassInit();
+	initScreenTriangle();
 	initGBuffer();
-	//initScreenTriangle();
+	// shadowmap
+	initShadowMapDir();
+	initShadowMapDirShaders();
+
 	// sampler
 	glGenSamplers(1, &m_sampler);
 	glSamplerParameteri(m_sampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
