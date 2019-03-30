@@ -6,6 +6,16 @@
 #include <glmlv/ViewController.hpp>
 #include <glmlv/simple_geometry.hpp>
 #include <glmlv/scene_loading.hpp>
+#include <tiny_gltf.h>
+
+
+typedef struct mat {
+	GLuint texId = 0;
+
+	glm::vec4 diffus = glm::vec4(1);
+	glm::vec3 emission = glm::vec3(1);
+
+}PBRMat;
 
 class Application
 {
@@ -14,7 +24,6 @@ public:
 
     int run();
 	void InitDefaultMat();
-	void SceneLoading();
 	void SceneLoadingGLTF();
 
 	void GeometryPassInit();
@@ -59,27 +68,20 @@ private:
 	glmlv::GLProgram m_geopassProg;
 	glmlv::GLProgram m_shadepassProg;
 
-	// opengl objects pour la scene
-
-	glmlv::SceneData m_scene;
-
-	GLuint m_vbo;
-	GLuint m_vao;
-	GLuint m_ibo;
-
 	// gltf
+
+	
 
 	tinygltf::Model m_model;
 	GLuint m_gltfvao;
 
-
 	// mats
 
 	GLuint m_defaultTexture;
-	glmlv::PhongMaterial m_defaultMaterial;
-
+	PBRMat m_defaultMat;
 	std::vector<GLuint> m_textures;
-	std::vector<glmlv::PhongMaterial> m_sceneMaterials;
+	std::vector<PBRMat> m_gltfMaterials;
+
 
 	// uniforme des transfo
 
@@ -88,14 +90,9 @@ private:
 	GLint m_uMVP;
 	GLint m_uMV;
 	GLint m_uNormal;
-	GLint m_uKa;
-	GLint m_uKd;
-	GLint m_uKs;
-	GLint m_uShiny;
-	GLint m_uKaTextureUnit;
-	GLint m_uKdTextureUnit;
-	GLint m_uKsTextureUnit;
-	GLint m_uShinyTextureUnit;
+
+	GLint m_uDiffus;
+	GLint m_uEmission;
 
 	GLint m_uDirLightDir;
 	GLint m_uDirLightIntensity;

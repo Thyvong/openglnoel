@@ -10,7 +10,7 @@ int Application::run()
 {
 	// Camera
 	glmlv::ViewController camera{ m_GLFWHandle.window(), 3.f };
-	float scenesize = glm::length(m_scene.bboxMax - m_scene.bboxMin);
+	float scenesize = 10;
 	camera.setSpeed(scenesize*0.1f);
 	float clearColor[3] = { 0, 0, 0 };
 	
@@ -18,12 +18,12 @@ int Application::run()
 	glm::mat4 Proj = glm::perspective(70.f, float(m_nWindowWidth) / m_nWindowHeight, 0.01f * scenesize, scenesize);
 	glm::mat4 View  = camera.getViewMatrix();
 	glm::mat4 Normal;
-	glm::mat4 Model;
+	glm::mat4 Model= glm::mat4(1);
 	glm::mat4 MV;
 	glm::mat4 MVP;
 	
 	int indexOffset = 0;
-	const auto sceneCenter = 0.5f * (m_scene.bboxMin + m_scene.bboxMax);
+	const auto sceneCenter = 0.5f * (glm::vec3(0));
 	const float sceneRadius = scenesize * 0.5f;
 
 
@@ -53,6 +53,8 @@ int Application::run()
 	int DirLightSMSampleCount = 16;
 	float DirLightSMSpread = 0.0005f;
 
+	gltf_method loader;
+
 	// Loop until the user closes the window
 	for (auto iterationCount = 0u; !m_GLFWHandle.shouldClose(); ++iterationCount)
 	{
@@ -75,16 +77,7 @@ int Application::run()
 			DirLightViewProjMatrix = dirLightProjMatrix * dirLightViewMatrix;
 			glUniformMatrix4fv(m_uDirLightViewProjMatrix, 1, GL_FALSE, glm::value_ptr(DirLightViewProjMatrix));
 			
-			glBindVertexArray(m_vao);
-
-			indexOffset = 0;
-			for (int i = 0; i < m_scene.shapeCount; i++)
-			{
-				glDrawElements(GL_TRIANGLES, m_scene.indexCountPerShape[i], GL_UNSIGNED_INT, (const GLvoid*)(indexOffset * sizeof(GLuint)));
-				indexOffset += m_scene.indexCountPerShape[i];
-			}
-
-			glBindVertexArray(0);
+			loader.drawModel(m_gltfvao, m_model);
 
 			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 
@@ -104,33 +97,11 @@ int Application::run()
 			glBindSampler(i, m_sampler);
 
 		// Set texture unit of each sampler
-		glUniform1i(m_uKaTextureUnit, 0);
-		glUniform1i(m_uKdTextureUnit, 1);
-		glUniform1i(m_uKsTextureUnit, 2);
-		glUniform1i(m_uShinyTextureUnit, 3);
+		//glUniform1i(m_uKaTextureUnit, 0);
 
-		glBindVertexArray(m_vao);
+		glBindVertexArray(m_gltfvao);
 		int indexOffset = 0;
-		// We draw each shape by specifying how much indices it carries, and with an offset in the global index buffer
-		for (int i =0 ; i < m_scene.shapeCount ; i++)
-		{
-			glmlv::PhongMaterial material = m_scene.materialIDPerShape[i] >= 0 ? m_sceneMaterials[m_scene.materialIDPerShape[i]] : m_defaultMaterial;
-			glUniform3fv(m_uKa, 1, glm::value_ptr(material.Ka));
-			glUniform3fv(m_uKd, 1, glm::value_ptr(material.Kd));
-			glUniform3fv(m_uKs, 1, glm::value_ptr(material.Ks));
-			glUniform1fv(m_uShiny, 1, &material.shininess);
-
-			glActiveTexture(GL_TEXTURE0);
-			glBindTexture(GL_TEXTURE_2D, material.KaTextureId);
-			glActiveTexture(GL_TEXTURE1);
-			glBindTexture(GL_TEXTURE_2D, material.KdTextureId);
-			glActiveTexture(GL_TEXTURE2);
-			glBindTexture(GL_TEXTURE_2D, material.KsTextureId);
-			glActiveTexture(GL_TEXTURE3);
-			glBindTexture(GL_TEXTURE_2D, material.shininessTextureId);
-			
-
-			Model = m_scene.localToWorldMatrixPerShape[i];
+		
 			View = camera.getViewMatrix();
 			MV = View * Model;
 			MVP = Proj * MV;
@@ -141,14 +112,11 @@ int Application::run()
 			glUniformMatrix4fv(m_uNormal, 1, GL_FALSE, glm::value_ptr(Normal));
 
 			
-			glDrawElements(GL_TRIANGLES, m_scene.indexCountPerShape[i], GL_UNSIGNED_INT, (const GLvoid*)(indexOffset * sizeof(GLuint)));
-			indexOffset += m_scene.indexCountPerShape[i];
-		}
-
+			loader.drawModel(m_gltfvao, m_model);
+		
 		for (GLuint i : {0, 1, 2, 3})
 			glBindSampler(i, 0);
 
-		glBindVertexArray(0);
 		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 		
 		// pour éviter le vacillement et faire un refresh
@@ -288,17 +256,12 @@ void Application::InitDefaultMat() {
 	glBindTexture(GL_TEXTURE_2D, 0);
 
 	// default mat
-	m_defaultMaterial.Ka = glm::vec3(0);
-	m_defaultMaterial.Kd = glm::vec3(1);
-	m_defaultMaterial.Ks = glm::vec3(1);
-	m_defaultMaterial.shininess = 32.f;
-	m_defaultMaterial.KaTextureId = m_defaultTexture;
-	m_defaultMaterial.KdTextureId = m_defaultTexture;
-	m_defaultMaterial.KsTextureId = m_defaultTexture;
-	m_defaultMaterial.shininessTextureId = m_defaultTexture;
+	m_defaultMat.diffus = glm::vec4(1);
+	m_defaultMat.emission = glm::vec3(1);
+	m_defaultMat.texId = m_defaultTexture;
 
 }
-
+/*
 void Application::SceneLoading() {
 
 	const auto objPath = m_AssetsRootPath / "sponza.obj";
@@ -370,16 +333,20 @@ void Application::SceneLoading() {
 
 	}
 }
-
+*/
 void Application::SceneLoadingGLTF() {
 
 	gltf_method sceneloader;
-	const auto objPath = m_AssetsRootPath / "sponza.obj";
-	sceneloader.loadModel(m_model, objPath.string);
+	auto objPath = m_AssetsRootPath / "Cube.gltf";
+	const char* path = objPath.string().c_str();
+	std::cout << objPath.string().c_str() << std::endl;
+	sceneloader.loadModel(m_model, path);
 
 	m_gltfvao = sceneloader.bindModel(m_model);
-}
+	sceneloader.InitMats(m_model, m_textures, m_gltfMaterials);
 
+}
+// modifier les shaders
 void Application::GeometryPassInit() {
 	m_geopassProg = glmlv::compileProgram({ m_ShadersRootPath / "geometryPass.vs.glsl", m_ShadersRootPath / "geometryPass.fs.glsl" });
 
@@ -387,14 +354,8 @@ void Application::GeometryPassInit() {
 	m_uMV = glGetUniformLocation(m_geopassProg.glId(), "uMV");
 	m_uNormal = glGetUniformLocation(m_geopassProg.glId(), "uNormal");
 
-	m_uKa = glGetUniformLocation(m_geopassProg.glId(), "uKa");
-	m_uKd = glGetUniformLocation(m_geopassProg.glId(), "uKd");
-	m_uKs = glGetUniformLocation(m_geopassProg.glId(), "uKs");
-	m_uShiny = glGetUniformLocation(m_geopassProg.glId(), "uShiny");
-	m_uKaTextureUnit = glGetUniformLocation(m_geopassProg.glId(), "uKaTextureUnit");
-	m_uKdTextureUnit = glGetUniformLocation(m_geopassProg.glId(), "uKdTextureUnit");
-	m_uKsTextureUnit = glGetUniformLocation(m_geopassProg.glId(), "uKsTextureUnit");
-	m_uShinyTextureUnit = glGetUniformLocation(m_geopassProg.glId(), "uShinyTextureUnit");
+	m_uDiffus = glGetUniformLocation(m_geopassProg.glId(), "uDiffus");
+	m_uEmission = glGetUniformLocation(m_geopassProg.glId(), "uEmission");
 
 }
 
@@ -507,7 +468,7 @@ Application::Application(int argc, char** argv) :
 
 	// Put here initialization code
 	InitDefaultMat();
-	SceneLoading();
+	SceneLoadingGLTF();
 	// deferred
 	GeometryPassInit();
 	ShadingPassInit();

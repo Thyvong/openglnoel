@@ -1,7 +1,7 @@
 #pragma once
 #include "Application.hpp"
 #include <iostream>
-#include <tiny_gltf.h>
+
 
 class gltf_method {
 public:
@@ -9,6 +9,7 @@ public:
 	std::map<int, GLuint> bindMesh(std::map<int, GLuint> vbos, tinygltf::Model &model, tinygltf::Mesh &mesh);
 	void bindModelNodes(std::map<int, GLuint> vbos, tinygltf::Model &model, tinygltf::Node &node);
 	GLuint bindModel(tinygltf::Model &model);
+	void InitMats(tinygltf::Model &model, std::vector<GLuint> m_textures, std::vector<PBRMat> m_gltfMaterials);
 	void drawMesh(tinygltf::Model &model, tinygltf::Mesh &mesh);
 	void drawModelNodes(tinygltf::Model &model, tinygltf::Node &node);
 	void drawModel(GLuint vao, tinygltf::Model &model);

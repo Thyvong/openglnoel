@@ -1,4 +1,4 @@
-
+#include "Application.hpp"
 #include "gltf_method.hpp"
 
 #include <iostream>
@@ -197,6 +197,8 @@ std::map<int, GLuint> gltf_method::bindMesh(std::map<int, GLuint> vbos, tinygltf
 		*/
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, image.width, image.height, 0,
 			format, type, &image.image.at(0));
+
+		// lets try to save this texture to our existing template
 	}
 
 	return vbos;
@@ -228,6 +230,47 @@ GLuint gltf_method::bindModel(tinygltf::Model &model) {
 
 	return vao;
 }
+
+void gltf_method::InitMats(tinygltf::Model &model, std::vector<GLuint> m_textures, std::vector<PBRMat> m_gltfMaterials) {
+
+	m_textures = std::vector<GLuint>(model.textures.size());
+	m_gltfMaterials = std::vector<PBRMat>(model.materials.size());
+
+
+	// storing textures
+	for (int i = 0; i < model.textures.size(); i++) {
+		// tinygltf textures info are separated in "Texture" objects and "Image" Object
+		tinygltf::Image tex = model.images[model.textures[i].source];
+
+		glGenTextures(1, &m_textures[i]);
+		glBindTexture(GL_TEXTURE_2D, m_textures[i]);
+		glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGB32F, tex.width, tex.height);
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, tex.width, tex.height, GL_RGBA, GL_UNSIGNED_BYTE, &tex.image.at(0) );
+		glBindTexture(GL_TEXTURE_2D, 0);
+	}
+
+	// storing materials
+	for (int i = 0; i < model.materials.size(); i++) {
+		tinygltf::ParameterMap material =  model.materials[i].values;
+		for (auto entry : material) {
+			std::cout << "material " << i << " : "<< entry.first << ", " 
+				
+				<< entry.second.string_value << ", " 
+				<< entry.second.number_value 
+				<< std::endl;
+		}
+		m_gltfMaterials[i].diffus.x = material["pbrMetallicRoughness"].ColorFactor()[0];
+		m_gltfMaterials[i].diffus.y = material["pbrMetallicRoughness"].ColorFactor()[1];
+		m_gltfMaterials[i].diffus.z = material["pbrMetallicRoughness"].ColorFactor()[2];
+		m_gltfMaterials[i].diffus.w = material["pbrMetallicRoughness"].ColorFactor()[3];
+
+		m_gltfMaterials[i].emission.x = material["emissiveFactor"].number_array[0];
+		m_gltfMaterials[i].emission.y = material["emissiveFactor"].number_array[1];
+		m_gltfMaterials[i].emission.z = material["emissiveFactor"].number_array[2];
+
+	}
+}
+
 
 void gltf_method::drawMesh(tinygltf::Model &model, tinygltf::Mesh &mesh) {
 	for (size_t i = 0; i < mesh.primitives.size(); ++i) {
