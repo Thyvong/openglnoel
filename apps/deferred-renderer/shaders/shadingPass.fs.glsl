@@ -56,14 +56,15 @@ void main()
 	vec3 position = vec3(texelFetch(uGPosition, ivec2(gl_FragCoord.xy), 0));
 	vec3 normal = vec3(texelFetch(uGNormal, ivec2(gl_FragCoord.xy), 0));
 
-	vec3 ka = vec3(texelFetch(uGAmbient, ivec2(gl_FragCoord.xy), 0));
-	vec3 kd = vec3(texelFetch(uGDiffuse, ivec2(gl_FragCoord.xy), 0));
-	vec4 ksShininess = texelFetch(uGGlossyShininess, ivec2(gl_FragCoord.xy), 0);
-	vec3 ks = ksShininess.rgb;
-	float shininess = ksShininess.a;
+	vec3 ambient = vec3(texelFetch(uGAmbient, ivec2(gl_FragCoord.xy), 0));
+	vec3 diffus = vec3(texelFetch(uGDiffuse, ivec2(gl_FragCoord.xy), 0));
+	vec4 spec = texelFetch(uGGlossyShininess, ivec2(gl_FragCoord.xy), 0);
+	vec3 ks = spec.rgb;
+	float shininess = spec.a;
 
 	vec3 eyeDir = normalize(-position);
 
+	// point light calcul
 	float distToPointLight = length(uPointLightPos - position);
 	vec3 dirToPointLight = (uPointLightPos - position) / distToPointLight;
 	vec3 pointLightIncidentLight = uPointLightIntensity / (distToPointLight * distToPointLight);
@@ -101,8 +102,10 @@ void main()
 	}
 	dirLightVisibility /= dirSampleCountf;
 
-
-	fColor = ka;
-	fColor += kd * (dirLightVisibility * uDirLightIntensity * max(0.f, dot(normal, uDirLightDir)) + pointLightIncidentLight * max(0., dot(normal, dirToPointLight)));
-	fColor += ks * (dirLightVisibility * uDirLightIntensity * dothDirLight + pointLightIncidentLight * dothPointLight);
-}
+	
+	fColor = ambient;
+	fColor += diffus * (dirLightVisibility  * max(0.f, dot(normal, uDirLightDir)) + pointLightIncidentLight * max(0., dot(normal, dirToPointLight))  );
+	fColor *= ks * (dirLightVisibility  * dothDirLight + pointLightIncidentLight * dothPointLight);
+	
+	//fColor = ambient + diffus  * (uDirLightIntensity * max(0.f, dot(normal, uDirLightDir) ) + ks * dirLightVisibility * uDirLightIntensity * dothDirLight) ;
+	}

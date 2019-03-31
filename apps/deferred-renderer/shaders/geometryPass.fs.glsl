@@ -13,6 +13,7 @@ layout(location = 4) out vec4 fGlossyShininess;
 uniform vec4 uDiffus;
 uniform vec3 uEmission;
 
+uniform sampler2D uDiffusTex;
 void main()
 {
 	fPosition = vViewSpacePosition;
@@ -22,6 +23,6 @@ void main()
 	
 
 	fAmbient = uEmission;
-	fDiffuse = uDiffus;
-	fGlossyShininess = vec4(ks, shininess);
+	fDiffuse = uDiffus.xyz* vec3(texture(uDiffusTex, vTexCoords));
+	fGlossyShininess = vec4(0.5,0.5,0.5, 1);
 }

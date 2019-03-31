@@ -10,10 +10,36 @@
 
 
 typedef struct mat {
-	GLuint texId = 0;
+	/*
 
-	glm::vec4 diffus = glm::vec4(1);
-	glm::vec3 emission = glm::vec3(1);
+	Exemple de material
+
+	"name": "Material0",
+		"pbrMetallicRoughness" : {
+			"baseColorFactor": [0.5, 0.5, 0.5, 1.0],
+			"baseColorTexture" : {
+				"index": 1,
+				"texCoord" : 1
+			},
+			"metallicFactor" : 1,
+			"roughnessFactor" : 1,
+			"metallicRoughnessTexture" : {
+				"index": 2,
+				"texCoord" : 1
+			}
+		},
+		"normalTexture": {
+			"scale": 2,
+			"index" : 3,
+			"texCoord" : 1
+		},
+		"emissiveFactor" : [0.2, 0.1, 0.0]
+		
+	*/
+	GLuint texId = 0; // id dans m_textures, correspond aussi à l'indice dans model.textures
+
+	glm::vec4 diffus = glm::vec4(1); // équivalent à baseColor dans la dénomination
+	glm::vec3 emission = glm::vec3(1); // équivalent à emissiveFactor
 
 }PBRMat;
 
@@ -24,7 +50,7 @@ public:
 
     int run();
 	void InitDefaultMat();
-	void SceneLoadingGLTF();
+	void SceneLoadingGLTF(int argc, char** argv);
 
 	void GeometryPassInit();
 	void ShadingPassInit();
@@ -34,6 +60,20 @@ public:
 	void initShadowMapDirShaders();
 
 	void initScreenTriangle();
+
+	bool loadModel(tinygltf::Model &model, const char *filename);
+	std::map<int, GLuint> bindMesh(std::map<int, GLuint> vbos, tinygltf::Model &model, tinygltf::Mesh &mesh);
+	void bindModelNodes(std::map<int, GLuint> vbos, tinygltf::Model &model, tinygltf::Node &node);
+	GLuint bindModel(tinygltf::Model &model);
+	void InitMats(tinygltf::Model &model);
+	void drawMesh(tinygltf::Model &model, tinygltf::Mesh &mesh);
+	void drawModelNodes(tinygltf::Model &model, tinygltf::Node &node);
+	void drawModel(GLuint vao, tinygltf::Model &model);
+	static void error_callback(int error, const char *description) {
+		(void)error;
+		fprintf(stderr, "Error: %s\n", description);
+	}
+
 
 	static glm::vec3 computeDirectionVector(float phiRadians, float thetaRadians)
 	{
@@ -91,8 +131,10 @@ private:
 	GLint m_uMV;
 	GLint m_uNormal;
 
-	GLint m_uDiffus;
+	GLint m_uDiffus; // pour la valeur
 	GLint m_uEmission;
+
+	GLint m_uDiffusTex; // pour transmettre la texture unit
 
 	GLint m_uDirLightDir;
 	GLint m_uDirLightIntensity;

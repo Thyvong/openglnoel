@@ -12,7 +12,7 @@ int Application::run()
 	glmlv::ViewController camera{ m_GLFWHandle.window(), 3.f };
 	float scenesize = 10;
 	camera.setSpeed(scenesize*0.1f);
-	float clearColor[3] = { 0, 0, 0 };
+	GLfloat clearColor[3] = { 0.4, 0.4, 0.4 };
 	
 	// Put here code to run before rendering loop
 	glm::mat4 Proj = glm::perspective(70.f, float(m_nWindowWidth) / m_nWindowHeight, 0.01f * scenesize, scenesize);
@@ -28,13 +28,13 @@ int Application::run()
 
 
 	glm::vec3 DirLightColor = glm::vec3(1);
-	float DirLightIntensity = 20;
+	float DirLightIntensity = 1;
 	float DirLightPhiAngleDegrees =40;
 	float DirLightThetaAngleDegrees =40;
 	glm::vec3 DirLightDirection = computeDirectionVector(glm::radians(DirLightPhiAngleDegrees), glm::radians(DirLightThetaAngleDegrees));
 	
 	glm::vec3 PointLightColor = glm::vec3(1);
-	float PointLightIntensity =40;
+	float PointLightIntensity =5;
 	glm::vec3 PointLightPosition = glm::vec3(1,1,1);
 
 	GBufferTextureType current_display = GPosition;
@@ -53,13 +53,13 @@ int Application::run()
 	int DirLightSMSampleCount = 16;
 	float DirLightSMSpread = 0.0005f;
 
-	gltf_method loader;
+	 
 
 	// Loop until the user closes the window
 	for (auto iterationCount = 0u; !m_GLFWHandle.shouldClose(); ++iterationCount)
 	{
 		const auto seconds = glfwGetTime();
-
+		glClearColor(clearColor[0], clearColor[1], clearColor[2],1);
 		
 		dirLightUpVector = computeDirectionVectorUp(glm::radians(DirLightPhiAngleDegrees), glm::radians(DirLightThetaAngleDegrees));
 		dirLightViewMatrix = glm::lookAt(sceneCenter + DirLightDirection * sceneRadius, sceneCenter, dirLightUpVector); // Will not work if m_DirLightDirection is colinear to lightUpVector
@@ -77,7 +77,13 @@ int Application::run()
 			DirLightViewProjMatrix = dirLightProjMatrix * dirLightViewMatrix;
 			glUniformMatrix4fv(m_uDirLightViewProjMatrix, 1, GL_FALSE, glm::value_ptr(DirLightViewProjMatrix));
 			
-			loader.drawModel(m_gltfvao, m_model);
+			glBindSampler(0, m_sampler);
+
+
+			drawModel(m_gltfvao, m_model);
+
+
+			glBindSampler(0, 0);
 
 			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 
@@ -92,12 +98,13 @@ int Application::run()
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		
-		// Same sampler for all texture units
-		for (GLuint i : {0, 1, 2, 3})
-			glBindSampler(i, m_sampler);
+		// pour l'instant on a qu'une texture à gérer (la diffuse), donc on a besoin que d'un slot/texture unit
+		// on utilise la texture unit 0 GL_TEXTURE0
+		//for (GLuint i : {0, 1, 2, 3})
+			glBindSampler(0, m_sampler);
 
-		// Set texture unit of each sampler
-		//glUniform1i(m_uKaTextureUnit, 0);
+		// Set texture unit of sampler
+		glUniform1i(m_uDiffusTex, 0);
 
 		glBindVertexArray(m_gltfvao);
 		int indexOffset = 0;
@@ -112,10 +119,11 @@ int Application::run()
 			glUniformMatrix4fv(m_uNormal, 1, GL_FALSE, glm::value_ptr(Normal));
 
 			
-			loader.drawModel(m_gltfvao, m_model);
+			// le bidning est dans la méthode
+			drawModel(m_gltfvao, m_model);
 		
-		for (GLuint i : {0, 1, 2, 3})
-			glBindSampler(i, 0);
+		//for (GLuint i : {0, 1, 2, 3})
+			glBindSampler(0, 0);
 
 		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 		
@@ -128,6 +136,7 @@ int Application::run()
 		if (fullmode==1) {
 			m_shadepassProg.use();
 
+				
 			glUniform3fv(m_uDirLightDir, 1, glm::value_ptr(glm::vec3(View * glm::vec4(glm::normalize(DirLightDirection), 0))));
 			glUniform3fv(m_uDirLightIntensity, 1, glm::value_ptr(DirLightColor * DirLightIntensity));
 
@@ -148,7 +157,7 @@ int Application::run()
 			{
 				glActiveTexture(GL_TEXTURE0 + i);
 				glBindTexture(GL_TEXTURE_2D, m_GBufferTextures[i]);
-
+				glBindSampler(i, m_sampler);
 				glUniform1i(m_uGBuffer[i], i);
 			}
 			// shadow map texture can now be used through gdepth entry
@@ -159,7 +168,13 @@ int Application::run()
 
 			glBindVertexArray(m_triangleVAO);
 			glDrawArrays(GL_TRIANGLES, 0, 3);
+
+
 			glBindVertexArray(0);
+
+			for (int i = GPosition; i < GDepth; ++i) {
+				glBindSampler(i, 0);
+			}
 
 		}
 		else {
@@ -261,90 +276,27 @@ void Application::InitDefaultMat() {
 	m_defaultMat.texId = m_defaultTexture;
 
 }
-/*
-void Application::SceneLoading() {
+void Application::SceneLoadingGLTF(int argc, char** argv) {
 
-	const auto objPath = m_AssetsRootPath / "sponza.obj";
-	std::cout << objPath << std::endl;
-	loadObjScene(objPath, m_scene);
-
-	glGenBuffers(1, &m_vbo);
-	glGenBuffers(1, &m_ibo);
-	glGenVertexArrays(1, &m_vao);
-
-	//  VBO
-	glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
-	glBufferStorage(GL_ARRAY_BUFFER, m_scene.vertexBuffer.size() * sizeof(glmlv::Vertex3f3f2f), m_scene.vertexBuffer.data(), 0);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-	//  IBO
-	glBindBuffer(GL_ARRAY_BUFFER, m_ibo);
-	glBufferStorage(GL_ARRAY_BUFFER, m_scene.indexBuffer.size() * sizeof(uint32_t), m_scene.indexBuffer.data(), 0);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-	//  VAO
-	glBindVertexArray(m_vao);
-
-	const GLint positionAttrLocation = 0;
-	const GLint normalAttrLocation = 1;
-	const GLint texCoordsAttrLocation = 2;
-
-	// We tell OpenGL what vertex attributes our VAO is describing:
-	glEnableVertexAttribArray(positionAttrLocation);
-	glEnableVertexAttribArray(normalAttrLocation);
-	glEnableVertexAttribArray(texCoordsAttrLocation);
-
-	glBindBuffer(GL_ARRAY_BUFFER, m_vbo); // We bind the VBO because the next 3 calls will read what VBO is bound in order to know where the data is stored
-
-	glVertexAttribPointer(positionAttrLocation, 3, GL_FLOAT, GL_FALSE, sizeof(glmlv::Vertex3f3f2f), (const GLvoid*)offsetof(glmlv::Vertex3f3f2f, position));
-	glVertexAttribPointer(normalAttrLocation, 3, GL_FLOAT, GL_FALSE, sizeof(glmlv::Vertex3f3f2f), (const GLvoid*)offsetof(glmlv::Vertex3f3f2f, normal));
-	glVertexAttribPointer(texCoordsAttrLocation, 2, GL_FLOAT, GL_FALSE, sizeof(glmlv::Vertex3f3f2f), (const GLvoid*)offsetof(glmlv::Vertex3f3f2f, texCoords));
-
-	glBindBuffer(GL_ARRAY_BUFFER, 0); // We can unbind the VBO because OpenGL has "written" in the VAO what VBO it needs to read when the VAO will be drawn
-
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ibo); // Binding the IBO to GL_ELEMENT_ARRAY_BUFFER while a VAO is bound "writes" it in the VAO for usage when the VAO will be drawn
-
-	glBindVertexArray(0);
-
-
-	// tex&mats collection
-	m_textures = std::vector<GLuint>(m_scene.textures.size());
-	m_sceneMaterials = std::vector<glmlv::PhongMaterial>(m_scene.materials.size());
-
-	// init scene textures into opengl objects
-	for (int i = 0; i < m_scene.textures.size(); i++) {
-		glGenTextures(1, &m_textures[i]);
-		glBindTexture(GL_TEXTURE_2D, m_textures[i]);
-		glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGB32F, m_scene.textures[i].width(), m_scene.textures[i].height());
-		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_scene.textures[i].width(), m_scene.textures[i].height(), GL_RGBA, GL_UNSIGNED_BYTE, m_scene.textures[i].data());
-		glBindTexture(GL_TEXTURE_2D, 0);
-	}
-
-	// storing materials
-	for (int i = 0; i < m_scene.materials.size(); i++) {
-		m_sceneMaterials[i].Ka = m_scene.materials[i].Ka;
-		m_sceneMaterials[i].Kd = m_scene.materials[i].Kd;
-		m_sceneMaterials[i].Ks = m_scene.materials[i].Ks;
-		m_sceneMaterials[i].shininess = m_scene.materials[i].shininess;
-		m_sceneMaterials[i].KaTextureId = m_scene.materials[i].KaTextureId >= 0 ? m_textures[m_scene.materials[i].KaTextureId] : m_defaultTexture;
-		m_sceneMaterials[i].KdTextureId = m_scene.materials[i].KdTextureId >= 0 ? m_textures[m_scene.materials[i].KdTextureId] : m_defaultTexture;
-		m_sceneMaterials[i].KsTextureId = m_scene.materials[i].KsTextureId >= 0 ? m_textures[m_scene.materials[i].KsTextureId] : m_defaultTexture;
-		m_sceneMaterials[i].shininessTextureId = m_scene.materials[i].shininessTextureId >= 0 ? m_textures[m_scene.materials[i].shininessTextureId] : m_defaultTexture;
+	auto objPath = m_AssetsRootPath / "Avocado.gltf";
+	if (argc > 1) {
+		objPath = argv[1];
+		std::cout << argv[1] << std::endl;
 
 	}
-}
-*/
-void Application::SceneLoadingGLTF() {
-
-	gltf_method sceneloader;
-	auto objPath = m_AssetsRootPath / "Cube.gltf";
-	const char* path = objPath.string().c_str();
+	
+	std::string path = objPath.string();
 	std::cout << objPath.string().c_str() << std::endl;
-	sceneloader.loadModel(m_model, path);
+	loadModel(m_model, path.c_str());
 
-	m_gltfvao = sceneloader.bindModel(m_model);
-	sceneloader.InitMats(m_model, m_textures, m_gltfMaterials);
-
+	m_gltfvao = bindModel(m_model);
+	InitMats(m_model);
+	std::cout << "init done ?" << std::endl;
+	int i = 0;
+	for (auto tex : m_textures) {
+		std::cout << " text"<< i << " : " << tex << std::endl;
+		i++;
+	}
 }
 // modifier les shaders
 void Application::GeometryPassInit() {
@@ -355,6 +307,7 @@ void Application::GeometryPassInit() {
 	m_uNormal = glGetUniformLocation(m_geopassProg.glId(), "uNormal");
 
 	m_uDiffus = glGetUniformLocation(m_geopassProg.glId(), "uDiffus");
+	m_uDiffusTex = glGetUniformLocation(m_geopassProg.glId(), "uDiffusTex");
 	m_uEmission = glGetUniformLocation(m_geopassProg.glId(), "uEmission");
 
 }
@@ -468,7 +421,7 @@ Application::Application(int argc, char** argv) :
 
 	// Put here initialization code
 	InitDefaultMat();
-	SceneLoadingGLTF();
+	SceneLoadingGLTF( argc,  argv);
 	// deferred
 	GeometryPassInit();
 	ShadingPassInit();
@@ -499,5 +452,304 @@ void Application::initScreenTriangle()
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, 0);
 
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindVertexArray(0);
+}
+
+
+
+#define TINYGLTF_IMPLEMENTATION
+#include <tiny_gltf.h>
+
+#define BUFFER_OFFSET(i) ((char *)NULL + (i))
+/*
+void SceneLoadingGLTF(glmlv::fs::path path) {
+
+tinygltf::Model model;
+const auto objPath =path.string;
+loadModel(model, objPath);
+
+std::vector<GLuint> buffers(model.buffers.size()); // un par tinygltf::Buffer
+
+// ibo ou vbo ?
+glGenBuffers(buffers.size(), buffers.data());
+for (int i =0 ; i<buffers.size();i++)
+{
+glBindBuffer(GL_ARRAY_BUFFER, buffers[i]);
+glBufferStorage(GL_ARRAY_BUFFER, model.buffers[i].data.size() * sizeof(unsigned char), model.buffers[i].data.data(), 0);
+glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
+std::vector<GLuint> vaos;
+std::vector<tinygltf::Primitive> primitives; // Pour chaque VAO on va aussi stocker les données de la primitive associé car on doit l'utiliser lors du rendu
+
+std::map<std::string, int> attribIndexOf{ {"POSITION", 0}, {"NORMAL", 1}, {"TEXCOORDS", 2} };
+std::map<int, int> numberOfComponentOf{
+{ TINYGLTF_TYPE_SCALAR , 1 },
+{ TINYGLTF_TYPE_VEC2 , 2 },
+{ TINYGLTF_TYPE_VEC3 , 3},
+{ TINYGLTF_TYPE_VEC4 , 4},
+{ TINYGLTF_TYPE_MAT2 , 4 },
+{ TINYGLTF_TYPE_MAT3 , 9 },
+{ TINYGLTF_TYPE_MAT4 , 16 }
+};
+
+for (int i = 0; i < model.meshes.size(); i++)
+{
+for (int j = 0; j < model.meshes[i].primitives.size(); j++)
+{
+GLuint vaoId;
+glGenVertexArrays(1,&vaoId);
+glBindVertexArray(vaoId);
+// quel accessor contient notre primitive
+tinygltf::Accessor indexAccessor = model.accessors[model.meshes[i].primitives[j].indices];
+// quel bufferview contient notre primitive
+tinygltf::BufferView bufferView = model.bufferViews[indexAccessor.bufferView];
+// quel buffer du bufferview
+int bufferIndex = bufferView.buffer;
+// on bind le vbo qui nous intéresse
+glBindBuffer(GL_ARRAY_BUFFER, buffers[bufferIndex]);
+// pour chaque attributs
+for (const auto entry : model.meshes[i].primitives[j].attributes)
+{
+// on cherche de nouveau quel accesor/bufferview/buffer contient
+indexAccessor = model.accessors[entry.second]; // key est "POSITION", ou "NORMAL", ou autre (voir l'image de spec du format)
+bufferView = model.bufferViews[indexAccessor.bufferView];
+bufferIndex = bufferView.buffer;
+//Ici je suppose qu'on a prérempli une map attribIndexOf
+//qui associe aux strings genre "POSITION" un index d'attribut du vertex shader
+//(les location = XXX du vertex shader); dans les TPs on utilisait 0 pour position, 1 pour normal et 2 pour tex coords
+
+glEnableVertexAttribArray(attribIndexOf[entry.first]);
+// Ici encore il faut avoir remplit une map numberOfComponentOf
+//qui associe un type gltf (comme "VEC2")
+//au nombre de composantes (2 pour "VEC2", 3 pour "VEC3")
+
+glVertexAttribPointer(attribIndexOf[entry.first], numberOfComponentOf[indexAccessor.type], indexAccessor.componentType, bufferView.byteStride, (const void*)(bufferView.byteOffset + indexAccessor.byteOffset));
+
+}
+glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+glBindVertexArray(0);
+vaos.push_back(vaoId);
+primitives.push_back(model.meshes[i].primitives[j]);
+}
+}
+
+}
+*/
+
+bool Application::loadModel(tinygltf::Model &model, const char *filename) {
+	tinygltf::TinyGLTF loader;
+	std::string err;
+	std::string warn;
+
+	bool res = loader.LoadASCIIFromFile(&model, &err, &warn, filename);
+	if (!warn.empty()) {
+		std::cout << "WARN: " << warn << std::endl;
+	}
+
+	if (!err.empty()) {
+		std::cout << "ERR: " << err << std::endl;
+	}
+
+	if (!res)
+		std::cout << "Failed to load glTF: " << filename << std::endl;
+	else
+		std::cout << "Loaded glTF: " << filename << std::endl;
+
+	return res;
+}
+
+std::map<int, GLuint> Application::bindMesh(std::map<int, GLuint> vbos, tinygltf::Model &model, tinygltf::Mesh &mesh) {
+	for (size_t i = 0; i < model.bufferViews.size(); ++i) {
+		const tinygltf::BufferView &bufferView = model.bufferViews[i];
+		if (bufferView.target == 0) {
+			std::cout << "WARN: bufferView.target is zero - Unsupported bufferView" << std::endl;
+			continue;
+		}
+
+		tinygltf::Buffer buffer = model.buffers[bufferView.buffer];
+		std::cout << "bufferview.target " << bufferView.target << std::endl;
+
+		GLuint vbo;
+		glGenBuffers(1, &vbo);
+		vbos[i] = vbo;
+		glBindBuffer(bufferView.target, vbo);
+
+		std::cout << "buffer.data.size = " << buffer.data.size()
+			<< ", bufferview.byteOffset = " << bufferView.byteOffset
+			<< std::endl;
+
+		glBufferData(bufferView.target, bufferView.byteLength,
+			&buffer.data.at(0) + bufferView.byteOffset, GL_STATIC_DRAW);
+	}
+
+	for (size_t i = 0; i < mesh.primitives.size(); ++i) {
+		tinygltf::Primitive primitive = mesh.primitives[i];
+		tinygltf::Accessor indexAccessor = model.accessors[primitive.indices];
+
+		for (auto &attrib : primitive.attributes) {
+			tinygltf::Accessor accessor = model.accessors[attrib.second];
+			int byteStride =
+				accessor.ByteStride(model.bufferViews[accessor.bufferView]);
+			glBindBuffer(GL_ARRAY_BUFFER, vbos[accessor.bufferView]);
+
+			int size = 1;
+			if (accessor.type != TINYGLTF_TYPE_SCALAR) {
+				size = accessor.type;
+			}
+
+			int vaa = -1;
+			if (attrib.first.compare("POSITION") == 0) vaa = 0;
+			if (attrib.first.compare("NORMAL") == 0) vaa = 1;
+			if (attrib.first.compare("TEXCOORD_0") == 0) vaa = 2;
+			if (vaa > -1) {
+				glEnableVertexAttribArray(vaa);
+				glVertexAttribPointer(vaa, size, accessor.componentType,
+					accessor.normalized ? GL_TRUE : GL_FALSE,
+					byteStride, BUFFER_OFFSET(accessor.byteOffset));
+			}
+			else
+				std::cout << "vaa missing: the following attributes is not implemented yet - " << attrib.first << std::endl;
+		}
+
+		GLuint texid;
+		glGenTextures(1, &texid);
+
+		tinygltf::Texture &tex = model.textures[0];
+		tinygltf::Image &image = model.images[tex.source];
+
+		glBindTexture(GL_TEXTURE_2D, texid);
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+		GLenum format = GL_RGBA;
+
+		if (image.component == 1) {
+			format = GL_RED;
+		}
+		else if (image.component == 2) {
+			format = GL_RG;
+		}
+		else if (image.component == 3) {
+			format = GL_RGB;
+		}
+		else {
+			// ???
+		}
+
+		GLenum type = GL_UNSIGNED_BYTE;
+		/*
+		if (image.bits == 16) {
+		type = GL_UNSIGNED_SHORT;
+		}
+		*/
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, image.width, image.height, 0,
+			format, type, &image.image.at(0));
+
+		// lets try to save this texture to our existing template
+	}
+
+	return vbos;
+}
+
+void Application::bindModelNodes(std::map<int, GLuint> vbos, tinygltf::Model &model, tinygltf::Node &node) {
+	
+	if(node.mesh != -1)
+		bindMesh(vbos, model, model.meshes[node.mesh]);
+	for (size_t i = 0; i < node.children.size(); i++) {
+		bindModelNodes(vbos, model, model.nodes[node.children[i]]);
+	}
+}
+
+GLuint Application::bindModel(tinygltf::Model &model) {
+	std::map<int, GLuint> vbos;
+	GLuint vao;
+	glGenVertexArrays(1, &vao);
+	glBindVertexArray(vao);
+
+	const tinygltf::Scene &scene = model.scenes[model.defaultScene];
+	for (size_t i = 0; i < scene.nodes.size(); ++i) {
+		bindModelNodes(vbos, model, model.nodes[scene.nodes[i]]);
+	}
+
+	glBindVertexArray(0);
+	// cleanup vbos
+	for (size_t i = 0; i < vbos.size(); ++i) {
+		glDeleteBuffers(1, &vbos[i]);
+	}
+
+	return vao;
+}
+
+void Application::InitMats(tinygltf::Model &model) {
+
+	m_textures = std::vector<GLuint>(model.textures.size());
+	m_gltfMaterials = std::vector<PBRMat>(model.materials.size());
+
+
+	// storing textures
+	for (int i = 0; i < model.textures.size(); i++) {
+		// tinygltf textures info are separated in "Texture" objects and "Image" Object
+		tinygltf::Image tex = model.images[model.textures[i].source];
+
+		glGenTextures(1, &m_textures[i]);
+		glBindTexture(GL_TEXTURE_2D, m_textures[i]);
+		glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGB32F, tex.width, tex.height);
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, tex.width, tex.height, GL_RGBA, GL_UNSIGNED_BYTE, &tex.image.at(0));
+		glBindTexture(GL_TEXTURE_2D, 0);
+	}
+
+	// storing materials
+	for (int i = 0; i < model.materials.size(); i++) {
+		tinygltf::ParameterMap material = model.materials[i].values;
+
+		m_gltfMaterials[i].diffus = (material.count("baseColorFactor")) ? glm::make_vec4(material["baseColorFactor"].number_array.data()) : glm::vec4(1);
+		m_gltfMaterials[i].texId = (material.count("baseColorTexture")) ? m_textures[material["baseColorTexture"].TextureIndex()] : -1;
+		m_gltfMaterials[i].emission = (material.count("emissiveFactor")) ? glm::make_vec3(material["emissiveFactor"].number_array.data()) : glm::vec3(0);
+
+	}
+}
+
+
+void Application::drawMesh(tinygltf::Model &model, tinygltf::Mesh &mesh) {
+	for (size_t i = 0; i < mesh.primitives.size(); ++i) {
+		std::cout << "drawing : " << mesh.name << std::endl;
+		tinygltf::Primitive primitive = mesh.primitives[i];
+		tinygltf::Accessor indexAccessor = model.accessors[primitive.indices];
+
+		glUniform4fv(m_uDiffus, 1, glm::value_ptr(m_gltfMaterials[primitive.material].diffus));
+		//sur quelle texture unit binder ?
+		glActiveTexture(GL_TEXTURE0);
+		GLint id = (m_gltfMaterials[primitive.material].texId == -1)? m_defaultTexture : m_gltfMaterials[primitive.material].texId;
+		
+		glBindTexture(GL_TEXTURE_2D, id);
+
+
+		glDrawElements(primitive.mode, indexAccessor.count,
+			indexAccessor.componentType,
+			BUFFER_OFFSET(indexAccessor.byteOffset));
+	}
+}
+
+// recursively draw node and children nodes of model
+void Application::drawModelNodes(tinygltf::Model &model, tinygltf::Node &node) {
+	if (node.mesh != -1)
+		drawMesh(model, model.meshes[node.mesh]);
+	for (size_t i = 0; i < node.children.size(); i++) {
+		drawModelNodes(model, model.nodes[node.children[i]]);
+	}
+}
+
+void Application::drawModel(GLuint vao, tinygltf::Model &model) {
+	glBindVertexArray(vao);
+
+	const tinygltf::Scene &scene = model.scenes[model.defaultScene];
+	for (size_t i = 0; i < scene.nodes.size(); ++i) {
+		drawModelNodes(model, model.nodes[scene.nodes[i]]);
+	}
+
 	glBindVertexArray(0);
 }
